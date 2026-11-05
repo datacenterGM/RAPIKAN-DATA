@@ -119,7 +119,7 @@ async function load(){
   slots.forEach(s=>(s.rows||[]).forEach(r=>{
     const k=key(r.noFaktur);if(!k)return;
     const o=ARm.get(k);
-    if(o){o.nominal+=Number(r.nominal)||0}else ARm.set(k,{fk:k,sales:r.sales,toko:r.toko,nominal:Number(r.nominal)||0,sisa:r.sisaRiil,bulan:s.month,slot:s.k})
+    if(o){o.nominal+=Number(r.nominal)||0}else ARm.set(k,{fk:k,sales:r.sales,toko:r.toko,tgl:r.tglFaktur,nominal:Number(r.nominal)||0,sisa:r.sisaRiil,bulan:s.month,slot:s.k})
   }));
   /* bandingkan */
   const pjSet=new Set(PJ.map(o=>o.fk));
@@ -133,6 +133,16 @@ async function load(){
     ar_x:[...ARm.values()].filter(a=>!pjSet.has(a.fk)),
     diff:PJ.filter(o=>ada(o)&&Math.abs(o.total-ARm.get(o.fk).nominal)>1).map(o=>({...o,arNom:ARm.get(o.fk).nominal,sel:o.total-ARm.get(o.fk).nominal}))
   };
+  /* cari pasangan mirip: tanggal & nominal sama, nomor faktur beda (salah ketik?) */
+  const N=x=>String(x||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const dkAR=v=>{if(typeof v==='number'||/^\d{5}$/.test(String(v))){const d=new Date(Math.round((Number(v)-25569)*864e5));return d.getUTCFullYear()+String(d.getUTCMonth()+1).padStart(2,'0')+String(d.getUTCDate()).padStart(2,'0')}
+    const m=String(v||'').match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);return m?(m[3].length===2?'20'+m[3]:m[3])+m[2].padStart(2,'0')+m[1].padStart(2,'0'):''};
+  const idxA=new Map(),idxP=new Map();
+  lists.ar_x.forEach(a=>{a.dk=dkAR(a.tgl);const k=a.dk+'|'+Math.round(a.nominal);(idxA.get(k)||idxA.set(k,[]).get(k)).push(a)});
+  [...lists.tempo_x,...lists.cash_x].forEach(o=>{const k=o.sk+'|'+Math.round(o.total);(idxP.get(k)||idxP.set(k,[]).get(k)).push(o)});
+  const fmt=(fk,nm,mine)=>fk+(N(nm)===N(mine)?'':' ('+nm+')');
+  [...lists.tempo_x,...lists.cash_x].forEach(o=>{const c=idxA.get(o.sk+'|'+Math.round(o.total))||[];o.mirip=c.map(a=>fmt(a.fk,a.toko,o.cust)).join(', ')});
+  lists.ar_x.forEach(a=>{const c=idxP.get(a.dk+'|'+Math.round(a.nominal))||[];a.mirip=c.map(o=>fmt(o.fk,o.cust,a.toko)).join(', ')});
   $('info').textContent='PJ: '+g.size+' faktur ('+nBatal+' batal tidak dihitung) · AR: '+ARm.size+' faktur · dicocokkan lewat No. Faktur.';
   const mons=[...new Set(PJ.map(o=>o.ym).filter(Boolean))].sort().reverse(),sl=[...new Set(PJ.map(o=>o.sales).filter(Boolean))].sort();
   $('fMon').innerHTML='<option value="">Semua bulan</option>'+mons.map(m=>'<option>'+m+'</option>').join('');
@@ -168,12 +178,12 @@ function render(){
   const pay=o=>'<span class="tag '+(/tempo/i.test(o.pay)?'t-tempo':'t-cash')+'">'+esc(o.pay)+'</span>';
   let h,rows;
   if(tab==='ar_x'){
-    h=['No. Faktur','Sales','Toko','Bulan AR','Nominal AR','Sisa'];
-    rows=a.map(o=>[o.fk,esc(o.sales),esc(o.toko),o.bulan||'',rp(o.nominal),rp(o.sisa)]);
+    h=['No. Faktur','Sales','Toko','Bulan AR','Nominal AR','Sisa','Mirip di PJ'];
+    rows=a.map(o=>[o.fk,esc(o.sales),esc(o.toko),o.bulan||'',rp(o.nominal),rp(o.sisa),esc(o.mirip||'-')]);
   }else{
     h=['Tanggal','No. Faktur','Customer','Sales','Produk','Bayar','Total PJ'];
-    if(tab==='cash_in'||tab==='tempo_in'||tab==='diff')h.push('Nominal AR');if(tab==='diff')h.push('Selisih');
-    rows=a.map(o=>{const r=[o.tgl,o.fk,esc(o.cust),esc(o.sales),o.prod,pay(o),rp(o.total)];if(tab==='cash_in'||tab==='tempo_in'||tab==='diff')r.push(rp(o.arNom));if(tab==='diff')r.push(rp(o.sel));return r});
+    if(tab==='cash_in'||tab==='tempo_in'||tab==='diff')h.push('Nominal AR');if(tab==='diff')h.push('Selisih');if(tab==='tempo_x'||tab==='cash_x')h.push('Mirip di AR');
+    rows=a.map(o=>{const r=[o.tgl,o.fk,esc(o.cust),esc(o.sales),o.prod,pay(o),rp(o.total)];if(tab==='cash_in'||tab==='tempo_in'||tab==='diff')r.push(rp(o.arNom));if(tab==='diff')r.push(rp(o.sel));if(tab==='tempo_x'||tab==='cash_x')r.push(esc(o.mirip||'-'));return r});
   }
   const num=i=>/Total|Nominal|Selisih|Sisa/.test(h[i]);
   $('th').innerHTML='<tr>'+h.map((x,i)=>'<th class="'+(num(i)?'r':'')+'">'+x+'</th>').join('')+'</tr>';
@@ -184,8 +194,8 @@ $('cards').onclick=e=>{const c=e.target.closest('.card');if(!c)return;if(open_&&
 $('bCopy').onclick=()=>{navigator.clipboard.writeText(cur.map(o=>o.fk).join('\n')).then(()=>{$('bCopy').textContent='Tersalin '+cur.length;setTimeout(()=>$('bCopy').textContent='Salin no. faktur',1500)})};
 $('bXls').onclick=()=>{
   const name=TABS.find(t=>t[0]===tab)[1];
-  const data=cur.map(o=>tab==='ar_x'?{'No Faktur':o.fk,Sales:o.sales,Toko:o.toko,'Bulan AR':o.bulan,'Nominal AR':o.nominal,Sisa:o.sisa}:
-   Object.assign({Tanggal:o.tgl,'No Faktur':o.fk,Customer:o.cust,Sales:o.sales,Produk:o.prod,Bayar:o.pay,'Total PJ':o.total},o.arNom!=null?{'Nominal AR':o.arNom}:{},o.sel!=null?{Selisih:o.sel}:{}));
+  const data=cur.map(o=>tab==='ar_x'?{'No Faktur':o.fk,Sales:o.sales,Toko:o.toko,'Bulan AR':o.bulan,'Nominal AR':o.nominal,Sisa:o.sisa,'Mirip di PJ':o.mirip||''}:
+   Object.assign({Tanggal:o.tgl,'No Faktur':o.fk,Customer:o.cust,Sales:o.sales,Produk:o.prod,Bayar:o.pay,'Total PJ':o.total},o.arNom!=null?{'Nominal AR':o.arNom}:{},o.sel!=null?{Selisih:o.sel}:{},o.mirip!=null?{'Mirip di AR':o.mirip}:{}));
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),name.slice(0,31));
   XLSX.writeFile(wb,'cek-pj-ar_'+tab+'.xlsx');
 };
