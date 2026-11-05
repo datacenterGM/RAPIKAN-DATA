@@ -133,29 +133,36 @@ async function load(){
     ar_x:[...ARm.values()].filter(a=>!pjSet.has(a.fk)),
     diff:PJ.filter(o=>ada(o)&&Math.abs(o.total-ARm.get(o.fk).nominal)>1).map(o=>({...o,arNom:ARm.get(o.fk).nominal,sel:o.total-ARm.get(o.fk).nominal}))
   };
-  const sum=a=>a.reduce((s,o)=>s+(o.total||0),0);
-  const tOk=tempo.length-lists.tempo_x.length,cOk=cash.length-lists.cash_x.length;
-  $('cards').innerHTML=
-   card('tempo_x','Tempo tidak ada di AR',lists.tempo_x.length,lists.tempo_x.length?'bad':'ok','Rp '+rp(sum(lists.tempo_x)))+
-   card('tempo_in','Tempo ada di AR',(tempo.length-lists.tempo_x.length)+' dari '+tempo.length,'ok','Faktur Tempo sudah tercatat')+
-   card('cash_in','Cash ada di AR',lists.cash_in.length+' dari '+cash.length,'ok','Faktur Cash tercatat di AR')+
-   card('cash_x','Cash tidak ada di AR',lists.cash_x.length,lists.cash_x.length?'warn':'ok','Rp '+rp(sum(lists.cash_x)))+
-   card('ar_x','AR tidak ada di PJ',lists.ar_x.length,lists.ar_x.length?'warn':'ok','Faktur AR tanpa pasangan di PJ')+
-   card('diff','Nominal beda',lists.diff.length,lists.diff.length?'warn':'ok','Faktur cocok, nilai berbeda');
   $('info').textContent='PJ: '+g.size+' faktur ('+nBatal+' batal tidak dihitung) · AR: '+ARm.size+' faktur · dicocokkan lewat No. Faktur.';
   const mons=[...new Set(PJ.map(o=>o.ym).filter(Boolean))].sort().reverse(),sl=[...new Set(PJ.map(o=>o.sales).filter(Boolean))].sort();
   $('fMon').innerHTML='<option value="">Semua bulan</option>'+mons.map(m=>'<option>'+m+'</option>').join('');
   $('fSales').innerHTML='<option value="">Semua sales</option>'+sl.map(m=>'<option>'+esc(m)+'</option>').join('');
   render();
 }
+function sum(a){return a.reduce((x,o)=>x+(o.total||0),0)}
+function F(o,ar){const m=$('fMon').value,s=$('fSales').value,pr=$('fProd').value;
+  if(ar)return(!m||o.bulan===m)&&(!s||o.sales===s);
+  return(!m||o.ym===m)&&(!s||o.sales===s)&&(!pr||(o.prod||'').includes(pr))}
+function drawCards(){
+  const L=k=>(lists[k]||[]).filter(o=>F(o,k==='ar_x'));
+  const tx=L('tempo_x'),ti=L('tempo_in'),ci=L('cash_in'),cx=L('cash_x'),ax=L('ar_x'),df=L('diff');
+  $('cards').innerHTML=
+   card('tempo_x','Tempo tidak ada di AR',tx.length,tx.length?'bad':'ok','Rp '+rp(sum(tx)))+
+   card('tempo_in','Tempo ada di AR',ti.length+' dari '+(ti.length+tx.length),'ok','Faktur Tempo sudah tercatat')+
+   card('cash_in','Cash ada di AR',ci.length+' dari '+(ci.length+cx.length),'ok','Faktur Cash tercatat di AR')+
+   card('cash_x','Cash tidak ada di AR',cx.length,cx.length?'warn':'ok','Rp '+rp(sum(cx)))+
+   card('ar_x','AR tidak ada di PJ',ax.length,ax.length?'warn':'ok','Faktur AR tanpa pasangan di PJ')+
+   card('diff','Nominal beda',df.length,df.length?'warn':'ok','Faktur cocok, nilai berbeda');
+}
 function card(id,t,n,c,s){return '<div class="card '+c+'" data-t="'+id+'"><b>'+t+'</b><div class="n">'+n+'</div><div class="s">'+esc(s)+'</div></div>'}
 
 function render(){
+  drawCards();
   document.querySelectorAll('#cards .card').forEach(c=>c.classList.toggle('on',open_&&c.dataset.t===tab));
-  document.querySelectorAll('.tw,.bar').forEach(e=>e.style.display=open_?'':'none');
+  document.querySelector('.tw').style.display=open_?'':'none';
   if(!open_)return;
   const m=$('fMon').value,s=$('fSales').value,pr=$('fProd').value,q=$('fQ').value.trim().toLowerCase();
-  let a=(lists[tab]||[]).filter(o=>(!m||o.ym===m||tab==='ar_x')&&(!s||o.sales===s)&&(!pr||tab==='ar_x'||(o.prod||'').includes(pr))&&(!q||(o.fk+' '+(o.cust||o.toko||'')).toLowerCase().includes(q)));
+  let a=(lists[tab]||[]).filter(o=>F(o,tab==='ar_x')&&(!q||(o.fk+' '+(o.cust||o.toko||'')).toLowerCase().includes(q)));
   if(tab!=='ar_x')a=a.slice().sort((x,y)=>y.sk<x.sk?-1:y.sk>x.sk?1:x.fk.localeCompare(y.fk));
   cur=a;
   const pay=o=>'<span class="tag '+(/tempo/i.test(o.pay)?'t-tempo':'t-cash')+'">'+esc(o.pay)+'</span>';
